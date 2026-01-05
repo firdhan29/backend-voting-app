@@ -7,30 +7,34 @@ const fs = require('fs');
 
 const app = express();
 
-// --- PERBAIKAN PENTING: PORT ---
-// Railway akan otomatis mengisi process.env.PORT. 
-// Jika di laptop, dia pakai 5000.
+// --- 1. PERBAIKAN PORT (WAJIB UNTUK RAILWAY) ---
+// Railway akan mengisi process.env.PORT otomatis.
+// Jika kode ini tidak ada, aplikasi akan crash.
 const PORT = process.env.PORT || 5000;
 
-// --- 1. MIDDLEWARE ---
+// --- 2. PERBAIKAN CORS (IZINKAN SEMUA DULU) ---
+// Kita gunakan '*' agar tidak ada blokir-blokiran saat debugging.
+// Nanti bisa dikunci lagi kalau sudah lancar.
 app.use(cors({
-    origin: '*', // Tips: Pakai '*' dulu agar tidak kena blokir CORS saat testing
+    origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
+
 app.use(express.json());
 
-// --- 2. FOLDER UPLOADS ---
+// --- 3. FOLDER UPLOADS ---
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// --- 3. KONEKSI DATABASE ---
+// --- 4. KONEKSI DATABASE (GUNAKAN ENV VARIABLE) ---
+// Railway otomatis menyediakan variabel MYSQLHOST, MYSQLUSER, dll.
+// Jadi kita tidak perlu tulis manual passwordnya di sini (lebih aman & stabil).
 const db = mysql.createPool({
-    // Menggunakan Environment Variables agar aman & otomatis deteksi di Railway
     host: process.env.MYSQLHOST || 'mysql.railway.internal',
     user: process.env.MYSQLUSER || 'root',
-    password: process.env.MYSQLPASSWORD || 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ',
+    password: process.env.MYSQLPASSWORD || '',
     database: process.env.MYSQLDATABASE || 'railway',
     port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
@@ -38,67 +42,38 @@ const db = mysql.createPool({
     queueLimit: 0
 });
 
-// --- 4. AUTO-SETUP DATABASE ---
-const initDatabase = () => {
-    const tableKandidat = `
-        CREATE TABLE IF NOT EXISTS kandidat (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            no_urut INT NOT NULL,
-            nama VARCHAR(255) NOT NULL,
-            visi TEXT,
-            color VARCHAR(50),
-            foto VARCHAR(255),
-            votes INT DEFAULT 0
-        )
-    `;
-    
-    const tablePemilih = `
-        CREATE TABLE IF NOT EXISTS pemilih (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nama_pemilih VARCHAR(255) NOT NULL,
-            alamat VARCHAR(255) NOT NULL,
-            kepala_keluarga VARCHAR(255),
-            waktu_vote TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    `;
-
-    const tableLogs = `
-        CREATE TABLE IF NOT EXISTS admin_logs (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            action VARCHAR(255) NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    `;
-
-    db.getConnection((err, conn) => {
-        if (err) {
-            console.error("❌ Gagal koneksi database:", err.message);
-            return;
-        }
-        console.log("✅ Terhubung ke Database!");
-        
-        conn.query(tableKandidat, (e) => { if(e) console.log(e); else console.log("Tabel Kandidat OK"); });
-        conn.query(tablePemilih, (e) => { if(e) console.log(e); else console.log("Tabel Pemilih OK"); });
-        conn.query(tableLogs, (e) => { if(e) console.log(e); else console.log("Tabel Logs OK"); });
-        
+// Cek koneksi di Log Railway
+db.getConnection((err, conn) => {
+    if (err) {
+        console.error("❌ KONEKSI DATABASE GAGAL:", err.message);
+    } else {
+        console.log("✅ BERHASIL TERHUBUNG KE DATABASE RAILWAY!");
         conn.release();
-    });
-};
+    }
+});
 
+// --- 5. AUTO-SETUP TABLE (Agar tidak error 500 "Table not found") ---
+const initDatabase = () => {
+    const tableKandidat = `CREATE TABLE IF NOT EXISTS kandidat (id INT AUTO_INCREMENT PRIMARY KEY, no_urut INT, nama VARCHAR(255), visi TEXT, color VARCHAR(50), foto VARCHAR(255), votes INT DEFAULT 0)`;
+    const tablePemilih = `CREATE TABLE IF NOT EXISTS pemilih (id INT AUTO_INCREMENT PRIMARY KEY, nama_pemilih VARCHAR(255), alamat VARCHAR(255), kepala_keluarga VARCHAR(255), waktu_vote TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+    const tableLogs = `CREATE TABLE IF NOT EXISTS admin_logs (id INT AUTO_INCREMENT PRIMARY KEY, action VARCHAR(255), timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
+
+    db.query(tableKandidat, (e) => e && console.log("Error tabel kandidat:", e.message));
+    db.query(tablePemilih, (e) => e && console.log("Error tabel pemilih:", e.message));
+    db.query(tableLogs, (e) => e && console.log("Error tabel logs:", e.message));
+};
 initDatabase();
 
-// --- 5. MULTER CONFIG ---
+// --- 6. MULTER & ROUTES ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'uploads/'),
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage: storage });
 
-// --- 6. API ROUTES ---
-
-// Cek status server
+// Route Cek Server
 app.get('/', (req, res) => {
-    res.send("Backend E-Voting Berjalan Normal!");
+    res.send("Backend E-Voting Siap! Database Status: " + (db ? "Connected" : "Error"));
 });
 
 app.get('/api/candidates', (req, res) => {
@@ -111,8 +86,7 @@ app.get('/api/candidates', (req, res) => {
 app.post('/api/candidates', upload.single('foto'), (req, res) => {
     const { no_urut, nama, visi, color } = req.body;
     const foto = req.file ? req.file.filename : null;
-    db.query('INSERT INTO kandidat (no_urut, nama, visi, color, foto, votes) VALUES (?, ?, ?, ?, ?, 0)', 
-    [no_urut, nama, visi, color, foto], (err) => {
+    db.query('INSERT INTO kandidat (no_urut, nama, visi, color, foto, votes) VALUES (?, ?, ?, ?, ?, 0)', [no_urut, nama, visi, color, foto], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
@@ -121,8 +95,7 @@ app.post('/api/candidates', upload.single('foto'), (req, res) => {
 app.put('/api/candidates/:id', upload.single('foto'), (req, res) => {
     const { no_urut, nama, visi, color, foto_lama } = req.body;
     const foto = req.file ? req.file.filename : foto_lama;
-    db.query('UPDATE kandidat SET no_urut=?, nama=?, visi=?, color=?, foto=? WHERE id=?', 
-    [no_urut, nama, visi, color, foto, req.params.id], (err) => {
+    db.query('UPDATE kandidat SET no_urut=?, nama=?, visi=?, color=?, foto=? WHERE id=?', [no_urut, nama, visi, color, foto, req.params.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
@@ -154,8 +127,7 @@ app.post('/api/vote', (req, res) => {
     const { candidateId, nama, alamat, kk } = req.body;
     db.query('UPDATE kandidat SET votes = votes + 1 WHERE id = ?', [candidateId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        db.query('INSERT INTO pemilih (nama_pemilih, alamat, kepala_keluarga) VALUES (?, ?, ?)', 
-        [nama, alamat, kk], (err) => {
+        db.query('INSERT INTO pemilih (nama_pemilih, alamat, kepala_keluarga) VALUES (?, ?, ?)', [nama, alamat, kk], (err) => {
             if (err) return res.status(500).json({ error: err.message });
             res.json({ success: true });
         });
@@ -196,7 +168,6 @@ app.post('/api/reset-system', (req, res) => {
     });
 });
 
-// --- JALANKAN SERVER ---
 app.listen(PORT, () => {
-    console.log(`Server Backend Berjalan di Port ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
