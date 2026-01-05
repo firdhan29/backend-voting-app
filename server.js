@@ -163,7 +163,8 @@ app.post('/api/reset-system', (req, res) => {
     });
 });
 
-// --- JALANKAN SERVER ---
+// Kodingan BARU (Gunakan process.env.PORT)
+const PORT = process.env.PORT || 8080; // Prioritaskan port dari Railway
 app.listen(PORT, () => {
     console.log(`Server Backend Berjalan di Port ${PORT}`);
 });
