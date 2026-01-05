@@ -7,17 +7,21 @@ const fs = require('fs');
 
 const app = express();
 
-// --- PENTING: PORT CONFIGURATION (HANYA SEKALI DEKLARASI) ---
-// Ini akan menggunakan Port dari Railway (process.env.PORT)
-// Jika di lokal/tidak ada env, akan pakai 8080
+// --- CONFIG PORT (JANGAN DIUBAH LAGI) ---
 const PORT = process.env.PORT || 8080;
 
-// --- 1. MIDDLEWARE ---
+// --- 1. MIDDLEWARE (BAGIAN INI YANG DIPERBAIKI) ---
+// Kita hapus '*' dan masukkan alamat website Anda secara spesifik
+// agar browser tidak memblokir (CORS Error hilang).
 app.use(cors({
-    origin: '*', // Izinkan semua akses sementara
+    origin: [
+        'https://alistiqomahcibiru.my.id', // Domain Website Anda
+        'http://localhost:3000'            // Untuk tes di laptop
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
+
 app.use(express.json());
 
 // --- 2. FOLDER UPLOADS ---
@@ -27,17 +31,16 @@ app.use('/uploads', express.static(uploadDir));
 
 // --- 3. KONEKSI DATABASE ---
 const db = mysql.createPool({
-    host: 'mysql.railway.internal',       // Host Internal Railway
-    user: 'root',                         // User default
-    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ', // PASSWORD ANDA
-    database: 'railway',                  // Nama DB
-    port: 3306,                           // Port
+    host: 'mysql.railway.internal',
+    user: 'root',
+    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ',
+    database: 'railway',
+    port: 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Cek Koneksi saat server nyala
 db.getConnection((err, conn) => {
     if (err) {
         console.error("❌ KONEKSI DATABASE GAGAL:", err.message);
@@ -67,10 +70,8 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // --- 6. API ROUTES ---
-
-// Route Cek Server
 app.get('/', (req, res) => {
-    res.send(`Backend E-Voting Siap di Port ${PORT}! Database Status: Connected`);
+    res.send(`Backend E-Voting Siap di Port ${PORT}!`);
 });
 
 app.get('/api/candidates', (req, res) => {
@@ -81,10 +82,16 @@ app.get('/api/candidates', (req, res) => {
 });
 
 app.post('/api/candidates', upload.single('foto'), (req, res) => {
+    // Log ini untuk mengecek apakah data sampai ke server
+    console.log("Menerima Data Kandidat:", req.body); 
+    
     const { no_urut, nama, visi, color } = req.body;
     const foto = req.file ? req.file.filename : null;
     db.query('INSERT INTO kandidat (no_urut, nama, visi, color, foto, votes) VALUES (?, ?, ?, ?, ?, 0)', [no_urut, nama, visi, color, foto], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+            console.error("Gagal Insert DB:", err);
+            return res.status(500).json({ error: err.message });
+        }
         res.json({ success: true });
     });
 });
@@ -165,8 +172,6 @@ app.post('/api/reset-system', (req, res) => {
     });
 });
 
-// --- 7. START SERVER ---
-// Menggunakan variabel PORT yang sudah dideklarasikan di baris paling atas
 app.listen(PORT, () => {
     console.log(`Server Backend Berjalan di Port ${PORT}`);
 });
