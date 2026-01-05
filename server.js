@@ -22,10 +22,11 @@ app.use('/uploads', express.static(uploadDir));
 
 // --- 3. KONEKSI DATABASE ---
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'alistiqo_airnew1',       // Default XAMPP
-    password: '@Firdhan1212',       // Default XAMPP (kosong)
-    database: 'alistiqo_vote', // Pastikan database ini sudah dibuat di phpMyAdmin
+    host: 'mysql.railway.internal',
+    user: 'root',       // Default XAMPP
+    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ',       // Default XAMPP (kosong)
+    database: 'railway', // Pastikan database ini sudah dibuat di phpMyAdmin
+    port: 3306,                                   // Copy dari MYSQLPORT (Hapus tanda kutip jika angka)
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
