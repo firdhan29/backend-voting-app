@@ -7,42 +7,35 @@ const fs = require('fs');
 
 const app = express();
 
-// --- 1. PERBAIKAN PORT (WAJIB UNTUK RAILWAY) ---
-// Railway akan mengisi process.env.PORT otomatis.
-// Jika kode ini tidak ada, aplikasi akan crash.
+// --- PENTING: PORT WAJIB DINAMIS ---
 const PORT = process.env.PORT || 5000;
 
-// --- 2. PERBAIKAN CORS (IZINKAN SEMUA DULU) ---
-// Kita gunakan '*' agar tidak ada blokir-blokiran saat debugging.
-// Nanti bisa dikunci lagi kalau sudah lancar.
+// --- 1. MIDDLEWARE ---
 app.use(cors({
-    origin: '*', 
+    origin: '*', // Izinkan semua akses dulu agar tidak error CORS
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
-
 app.use(express.json());
 
-// --- 3. FOLDER UPLOADS ---
+// --- 2. FOLDER UPLOADS ---
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// --- 4. KONEKSI DATABASE (GUNAKAN ENV VARIABLE) ---
-// Railway otomatis menyediakan variabel MYSQLHOST, MYSQLUSER, dll.
-// Jadi kita tidak perlu tulis manual passwordnya di sini (lebih aman & stabil).
+// --- 3. KONEKSI DATABASE (DATA FIX DARI ANDA) ---
 const db = mysql.createPool({
-    host: process.env.MYSQLHOST || 'mysql.railway.internal',
-    user: process.env.MYSQLUSER || 'root',
-    password: process.env.MYSQLPASSWORD || '',
-    database: process.env.MYSQLDATABASE || 'railway',
-    port: process.env.MYSQLPORT || 3306,
+    host: 'mysql.railway.internal',       // Host Internal Railway
+    user: 'root',                         // User default
+    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ', // PASSWORD ANDA (JANGAN DIHAPUS)
+    database: 'railway',                  // Nama DB
+    port: 3306,                           // Port
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Cek koneksi di Log Railway
+// Cek Koneksi saat server nyala
 db.getConnection((err, conn) => {
     if (err) {
         console.error("❌ KONEKSI DATABASE GAGAL:", err.message);
@@ -52,28 +45,30 @@ db.getConnection((err, conn) => {
     }
 });
 
-// --- 5. AUTO-SETUP TABLE (Agar tidak error 500 "Table not found") ---
+// --- 4. AUTO-SETUP TABLE ---
 const initDatabase = () => {
     const tableKandidat = `CREATE TABLE IF NOT EXISTS kandidat (id INT AUTO_INCREMENT PRIMARY KEY, no_urut INT, nama VARCHAR(255), visi TEXT, color VARCHAR(50), foto VARCHAR(255), votes INT DEFAULT 0)`;
     const tablePemilih = `CREATE TABLE IF NOT EXISTS pemilih (id INT AUTO_INCREMENT PRIMARY KEY, nama_pemilih VARCHAR(255), alamat VARCHAR(255), kepala_keluarga VARCHAR(255), waktu_vote TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
     const tableLogs = `CREATE TABLE IF NOT EXISTS admin_logs (id INT AUTO_INCREMENT PRIMARY KEY, action VARCHAR(255), timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
 
-    db.query(tableKandidat, (e) => e && console.log("Error tabel kandidat:", e.message));
-    db.query(tablePemilih, (e) => e && console.log("Error tabel pemilih:", e.message));
-    db.query(tableLogs, (e) => e && console.log("Error tabel logs:", e.message));
+    db.query(tableKandidat, (e) => { if(e) console.log("Err Kandidat:", e.message); else console.log("Tabel Kandidat Aman"); });
+    db.query(tablePemilih, (e) => { if(e) console.log("Err Pemilih:", e.message); else console.log("Tabel Pemilih Aman"); });
+    db.query(tableLogs, (e) => { if(e) console.log("Err Logs:", e.message); else console.log("Tabel Logs Aman"); });
 };
 initDatabase();
 
-// --- 6. MULTER & ROUTES ---
+// --- 5. MULTER CONFIG ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, 'uploads/'),
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage: storage });
 
+// --- 6. API ROUTES ---
+
 // Route Cek Server
 app.get('/', (req, res) => {
-    res.send("Backend E-Voting Siap! Database Status: " + (db ? "Connected" : "Error"));
+    res.send("Backend E-Voting Siap! Database Status: Connected");
 });
 
 app.get('/api/candidates', (req, res) => {
@@ -168,6 +163,7 @@ app.post('/api/reset-system', (req, res) => {
     });
 });
 
+// --- JALANKAN SERVER ---
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server Backend Berjalan di Port ${PORT}`);
 });
