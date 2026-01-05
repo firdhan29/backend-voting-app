@@ -7,12 +7,14 @@ const fs = require('fs');
 
 const app = express();
 
-// --- PENTING: PORT WAJIB DINAMIS ---
-const PORT = process.env.PORT || 5000;
+// --- PENTING: PORT CONFIGURATION (HANYA SEKALI DEKLARASI) ---
+// Ini akan menggunakan Port dari Railway (process.env.PORT)
+// Jika di lokal/tidak ada env, akan pakai 8080
+const PORT = process.env.PORT || 8080;
 
 // --- 1. MIDDLEWARE ---
 app.use(cors({
-    origin: '*', // Izinkan semua akses dulu agar tidak error CORS
+    origin: '*', // Izinkan semua akses sementara
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
@@ -23,11 +25,11 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// --- 3. KONEKSI DATABASE (DATA FIX DARI ANDA) ---
+// --- 3. KONEKSI DATABASE ---
 const db = mysql.createPool({
     host: 'mysql.railway.internal',       // Host Internal Railway
     user: 'root',                         // User default
-    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ', // PASSWORD ANDA (JANGAN DIHAPUS)
+    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ', // PASSWORD ANDA
     database: 'railway',                  // Nama DB
     port: 3306,                           // Port
     waitForConnections: true,
@@ -68,7 +70,7 @@ const upload = multer({ storage: storage });
 
 // Route Cek Server
 app.get('/', (req, res) => {
-    res.send("Backend E-Voting Siap! Database Status: Connected");
+    res.send(`Backend E-Voting Siap di Port ${PORT}! Database Status: Connected`);
 });
 
 app.get('/api/candidates', (req, res) => {
@@ -163,8 +165,8 @@ app.post('/api/reset-system', (req, res) => {
     });
 });
 
-// Kodingan BARU (Gunakan process.env.PORT)
-const PORT = process.env.PORT || 8080; // Prioritaskan port dari Railway
+// --- 7. START SERVER ---
+// Menggunakan variabel PORT yang sudah dideklarasikan di baris paling atas
 app.listen(PORT, () => {
     console.log(`Server Backend Berjalan di Port ${PORT}`);
 });
