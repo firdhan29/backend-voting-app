@@ -7,16 +7,14 @@ const fs = require('fs');
 
 const app = express();
 
-// --- CONFIG PORT (JANGAN DIUBAH LAGI) ---
+// --- CONFIG PORT ---
 const PORT = process.env.PORT || 8080;
 
-// --- 1. MIDDLEWARE (BAGIAN INI YANG DIPERBAIKI) ---
-// Kita hapus '*' dan masukkan alamat website Anda secara spesifik
-// agar browser tidak memblokir (CORS Error hilang).
+// --- PERBAIKAN CORS (WAJIB SEPERTI INI) ---
 app.use(cors({
     origin: [
         'https://alistiqomahcibiru.my.id', // Domain Website Anda
-        'http://localhost:3000'            // Untuk tes di laptop
+        'http://localhost:3000'            // Untuk tes lokal
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
@@ -24,12 +22,12 @@ app.use(cors({
 
 app.use(express.json());
 
-// --- 2. FOLDER UPLOADS ---
+// --- FOLDER UPLOADS ---
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 app.use('/uploads', express.static(uploadDir));
 
-// --- 3. KONEKSI DATABASE ---
+// --- KONEKSI DATABASE ---
 const db = mysql.createPool({
     host: 'mysql.railway.internal',
     user: 'root',
@@ -50,29 +48,8 @@ db.getConnection((err, conn) => {
     }
 });
 
-// --- 4. AUTO-SETUP TABLE ---
-const initDatabase = () => {
-    const tableKandidat = `CREATE TABLE IF NOT EXISTS kandidat (id INT AUTO_INCREMENT PRIMARY KEY, no_urut INT, nama VARCHAR(255), visi TEXT, color VARCHAR(50), foto VARCHAR(255), votes INT DEFAULT 0)`;
-    const tablePemilih = `CREATE TABLE IF NOT EXISTS pemilih (id INT AUTO_INCREMENT PRIMARY KEY, nama_pemilih VARCHAR(255), alamat VARCHAR(255), kepala_keluarga VARCHAR(255), waktu_vote TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
-    const tableLogs = `CREATE TABLE IF NOT EXISTS admin_logs (id INT AUTO_INCREMENT PRIMARY KEY, action VARCHAR(255), timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`;
-
-    db.query(tableKandidat, (e) => { if(e) console.log("Err Kandidat:", e.message); else console.log("Tabel Kandidat Aman"); });
-    db.query(tablePemilih, (e) => { if(e) console.log("Err Pemilih:", e.message); else console.log("Tabel Pemilih Aman"); });
-    db.query(tableLogs, (e) => { if(e) console.log("Err Logs:", e.message); else console.log("Tabel Logs Aman"); });
-};
-initDatabase();
-
-// --- 5. MULTER CONFIG ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, 'uploads/'),
-    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
-const upload = multer({ storage: storage });
-
-// --- 6. API ROUTES ---
-app.get('/', (req, res) => {
-    res.send(`Backend E-Voting Siap di Port ${PORT}!`);
-});
+// --- API ROUTES ---
+app.get('/', (req, res) => { res.send(`Backend Ready di Port ${PORT}`); });
 
 app.get('/api/candidates', (req, res) => {
     db.query('SELECT * FROM kandidat ORDER BY no_urut ASC', (err, results) => {
@@ -81,17 +58,18 @@ app.get('/api/candidates', (req, res) => {
     });
 });
 
+// Upload Config
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, 'uploads/'),
+    filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
+});
+const upload = multer({ storage: storage });
+
 app.post('/api/candidates', upload.single('foto'), (req, res) => {
-    // Log ini untuk mengecek apakah data sampai ke server
-    console.log("Menerima Data Kandidat:", req.body); 
-    
     const { no_urut, nama, visi, color } = req.body;
     const foto = req.file ? req.file.filename : null;
     db.query('INSERT INTO kandidat (no_urut, nama, visi, color, foto, votes) VALUES (?, ?, ?, ?, ?, 0)', [no_urut, nama, visi, color, foto], (err) => {
-        if (err) {
-            console.error("Gagal Insert DB:", err);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true });
     });
 });
