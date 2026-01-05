@@ -6,14 +6,19 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 5000;
+
+// --- PERBAIKAN PENTING: PORT ---
+// Railway akan otomatis mengisi process.env.PORT. 
+// Jika di laptop, dia pakai 5000.
+const PORT = process.env.PORT || 5000;
 
 // --- 1. MIDDLEWARE ---
 app.use(cors({
-    origin: 'https://alistiqomahcibiru.my.id', // Pastikan pakai HTTPS dan nama domain Anda
+    origin: '*', // Tips: Pakai '*' dulu agar tidak kena blokir CORS saat testing
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
+app.use(express.json());
 
 // --- 2. FOLDER UPLOADS ---
 const uploadDir = path.join(__dirname, 'uploads');
@@ -22,18 +27,18 @@ app.use('/uploads', express.static(uploadDir));
 
 // --- 3. KONEKSI DATABASE ---
 const db = mysql.createPool({
-    host: 'mysql.railway.internal',
-    user: 'root',       // Default XAMPP
-    password: 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ',       // Default XAMPP (kosong)
-    database: 'railway', // Pastikan database ini sudah dibuat di phpMyAdmin
-    port: 3306,                                   // Copy dari MYSQLPORT (Hapus tanda kutip jika angka)
+    // Menggunakan Environment Variables agar aman & otomatis deteksi di Railway
+    host: process.env.MYSQLHOST || 'mysql.railway.internal',
+    user: process.env.MYSQLUSER || 'root',
+    password: process.env.MYSQLPASSWORD || 'VeKAZcGNiFSEHRsrKPRPMQwAIvTmLsbZ',
+    database: process.env.MYSQLDATABASE || 'railway',
+    port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// --- 4. AUTO-SETUP DATABASE (FITUR BARU) ---
-// Fungsi ini akan otomatis membuat tabel jika belum ada
+// --- 4. AUTO-SETUP DATABASE ---
 const initDatabase = () => {
     const tableKandidat = `
         CREATE TABLE IF NOT EXISTS kandidat (
@@ -65,21 +70,21 @@ const initDatabase = () => {
         )
     `;
 
-    db.query(tableKandidat, (err) => {
-        if (err) console.error('Gagal buat tabel kandidat:', err);
-        else console.log('✅ Tabel Kandidat Siap');
-    });
-    db.query(tablePemilih, (err) => {
-        if (err) console.error('Gagal buat tabel pemilih:', err);
-        else console.log('✅ Tabel Pemilih Siap');
-    });
-    db.query(tableLogs, (err) => {
-        if (err) console.error('Gagal buat tabel logs:', err);
-        else console.log('✅ Tabel Logs Siap');
+    db.getConnection((err, conn) => {
+        if (err) {
+            console.error("❌ Gagal koneksi database:", err.message);
+            return;
+        }
+        console.log("✅ Terhubung ke Database!");
+        
+        conn.query(tableKandidat, (e) => { if(e) console.log(e); else console.log("Tabel Kandidat OK"); });
+        conn.query(tablePemilih, (e) => { if(e) console.log(e); else console.log("Tabel Pemilih OK"); });
+        conn.query(tableLogs, (e) => { if(e) console.log(e); else console.log("Tabel Logs OK"); });
+        
+        conn.release();
     });
 };
 
-// Jalankan setup database saat server nyala
 initDatabase();
 
 // --- 5. MULTER CONFIG ---
@@ -91,7 +96,11 @@ const upload = multer({ storage: storage });
 
 // --- 6. API ROUTES ---
 
-// GET KANDIDAT
+// Cek status server
+app.get('/', (req, res) => {
+    res.send("Backend E-Voting Berjalan Normal!");
+});
+
 app.get('/api/candidates', (req, res) => {
     db.query('SELECT * FROM kandidat ORDER BY no_urut ASC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -99,7 +108,6 @@ app.get('/api/candidates', (req, res) => {
     });
 });
 
-// TAMBAH KANDIDAT
 app.post('/api/candidates', upload.single('foto'), (req, res) => {
     const { no_urut, nama, visi, color } = req.body;
     const foto = req.file ? req.file.filename : null;
@@ -110,7 +118,6 @@ app.post('/api/candidates', upload.single('foto'), (req, res) => {
     });
 });
 
-// EDIT KANDIDAT
 app.put('/api/candidates/:id', upload.single('foto'), (req, res) => {
     const { no_urut, nama, visi, color, foto_lama } = req.body;
     const foto = req.file ? req.file.filename : foto_lama;
@@ -121,7 +128,6 @@ app.put('/api/candidates/:id', upload.single('foto'), (req, res) => {
     });
 });
 
-// HAPUS KANDIDAT
 app.delete('/api/candidates/:id', (req, res) => {
     db.query('DELETE FROM kandidat WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -129,7 +135,6 @@ app.delete('/api/candidates/:id', (req, res) => {
     });
 });
 
-// CEK KUOTA PEMILIH
 app.post('/api/check-quota', (req, res) => {
     const { alamat } = req.body;
     db.query('SELECT COUNT(*) as count FROM pemilih WHERE alamat = ?', [alamat], (err, results) => {
@@ -138,7 +143,6 @@ app.post('/api/check-quota', (req, res) => {
     });
 });
 
-// AMBIL DATA PEMILIH
 app.get('/api/voters', (req, res) => {
     db.query('SELECT * FROM pemilih ORDER BY waktu_vote DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -146,13 +150,10 @@ app.get('/api/voters', (req, res) => {
     });
 });
 
-// PROSES VOTE
 app.post('/api/vote', (req, res) => {
     const { candidateId, nama, alamat, kk } = req.body;
-    // 1. Tambah vote kandidat
     db.query('UPDATE kandidat SET votes = votes + 1 WHERE id = ?', [candidateId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        // 2. Simpan data pemilih
         db.query('INSERT INTO pemilih (nama_pemilih, alamat, kepala_keluarga) VALUES (?, ?, ?)', 
         [nama, alamat, kk], (err) => {
             if (err) return res.status(500).json({ error: err.message });
@@ -161,7 +162,6 @@ app.post('/api/vote', (req, res) => {
     });
 });
 
-// HAPUS PEMILIH
 app.delete('/api/voters/:id', (req, res) => {
     db.query('DELETE FROM pemilih WHERE id = ?', [req.params.id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
@@ -169,11 +169,10 @@ app.delete('/api/voters/:id', (req, res) => {
     });
 });
 
-// LOGS
 app.get('/api/admin-logs', (req, res) => {
     db.query('SELECT * FROM admin_logs ORDER BY timestamp DESC LIMIT 50', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(results); // Pastikan selalu array, jika error db akan masuk catch client
+        res.json(results);
     });
 });
 
@@ -199,7 +198,5 @@ app.post('/api/reset-system', (req, res) => {
 
 // --- JALANKAN SERVER ---
 app.listen(PORT, () => {
-    console.log(`==========================================`);
-    console.log(`🚀 Server Backend Berjalan di Port ${PORT}`);
-    console.log(`==========================================`);
+    console.log(`Server Backend Berjalan di Port ${PORT}`);
 });
